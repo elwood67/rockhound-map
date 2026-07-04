@@ -608,7 +608,14 @@ function toast(msg){
 initTrack();
 startGPS();
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('sw.js').then(()=> setTimeout(refreshTileCount, 800));
+  let refreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(refreshing) return; refreshing=true; location.reload();   // new version took over → refresh once
+  });
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    setTimeout(refreshTileCount, 800);
+    if(reg.update) reg.update();          // check for a newer app each launch (when online)
+  });
 }
 </script>
 </body>

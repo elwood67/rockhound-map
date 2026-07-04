@@ -5,7 +5,7 @@
             (b) in bulk when you tap "Download this area". Served cache-first
             when you're offline in the field.
 */
-const SHELL = 'rockhound-shell-v3';
+const SHELL = 'rockhound-shell-v4';
 const TILES = 'rockhound-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -70,15 +70,32 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App shell + CDN assets: cache-first, fall back to network.
+  // App HTML / navigations: NETWORK-FIRST so a fresh version always loads when online,
+  // and falls back to the cached copy only when offline. This is what makes updates
+  // show up without cache-fighting.
+  const isHTML = e.request.mode === 'navigate' || e.request.destination === 'document'
+    || url.pathname.endsWith('/') || url.pathname.endsWith('index.html');
+  if (url.origin === self.location.origin && isHTML) {
+    e.respondWith(
+      fetch(e.request).then((res) => {
+        caches.open(SHELL).then((c) => c.put('./index.html', res.clone()));
+        return res;
+      }).catch(() => caches.match(e.request).then((hit) => hit || caches.match('./index.html')))
+    );
+    return;
+  }
+
+  // Other assets (Leaflet JS/CSS, icons): cache-first, fall back to network.
   e.respondWith(
-    caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
-      if (res && res.ok && (url.origin === self.location.origin || url.hostname.endsWith('unpkg.com'))) {
-        const copy = res.clone();
-        caches.open(SHELL).then((c) => c.put(e.request, copy));
-      }
-      return res;
-    }).catch(() => hit))
+    caches.match(e.request).then((hit) => {
+      if (hit) return hit;
+      return fetch(e.request).then((res) => {
+        if (res && res.ok && (url.origin === self.location.origin || url.hostname.endsWith('unpkg.com'))) {
+          caches.open(SHELL).then((c) => c.put(e.request, res.clone()));
+        }
+        return res;
+      });
+    })
   );
 });
 
