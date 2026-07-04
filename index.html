@@ -97,6 +97,21 @@
   .note{color:var(--muted);font-size:12.5px;line-height:1.5;margin:8px 2px}
   .empty{color:var(--muted);font-size:13.5px;text-align:center;padding:22px 8px}
 
+  /* center crosshair for placing pins on the map */
+  #crosshair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:860;display:none;
+    pointer-events:none;filter:drop-shadow(0 1px 2px #000a)}
+  #crosshair.show{display:block}
+  #crosshair svg{width:46px;height:46px}
+
+  /* place-mode banner */
+  #placebar{position:absolute;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);z-index:906;
+    display:none;flex-direction:column;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:11px 13px;backdrop-filter:blur(8px)}
+  #placebar.show{display:flex}
+  #placebar .pb-txt{font-size:13.5px;color:var(--ink);line-height:1.4}
+  #placebar .pb-acts{display:flex;gap:8px;justify-content:flex-end}
+  #placebar .mini.go{background:var(--amber);color:#241a06;border-color:var(--amber);font-weight:700}
+
   /* action popover above the mark button */
   #markmenu{position:absolute;left:0;right:0;bottom:calc(env(safe-area-inset-bottom) + 84px);z-index:905;
     display:none;justify-content:center}
@@ -146,11 +161,24 @@
 
 <div id="accread" class="show"></div>
 
+<div id="crosshair" aria-hidden="true">
+  <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="6" fill="none" stroke="#e8a848" stroke-width="2.2"/><path d="M22 3v9M22 32v9M3 22h9M32 22h9" stroke="#e8a848" stroke-width="2.2" stroke-linecap="round"/><circle cx="22" cy="22" r="1.8" fill="#e8a848"/></svg>
+</div>
+
+<div id="placebar">
+  <div class="pb-txt">Drag the map so the crosshair sits on your spot, then place it.</div>
+  <div class="pb-acts">
+    <button class="mini" id="place-cancel">Cancel</button>
+    <button class="mini go" id="place-go">Place pin here</button>
+  </div>
+</div>
+
 <div id="markmenu">
   <div class="card">
-    <button data-mark="car"><span class="sw" style="background:var(--amber)"></span>Mark where I parked</button>
-    <button data-mark="river"><span class="sw" style="background:var(--teal)"></span>Mark river entry point</button>
-    <button data-mark="custom"><span class="sw" style="background:var(--green)"></span>Drop a pin here…</button>
+    <button data-mark="place"><span class="sw" style="background:var(--green);border-radius:3px"></span>Place a pin on the map…</button>
+    <button data-mark="car"><span class="sw" style="background:var(--amber)"></span>Mark where I parked (GPS)</button>
+    <button data-mark="river"><span class="sw" style="background:var(--teal)"></span>Mark river entry (GPS)</button>
+    <button data-mark="custom"><span class="sw" style="background:var(--green)"></span>Pin my current spot (GPS)</button>
   </div>
 </div>
 
@@ -386,16 +414,39 @@ document.getElementById('btn-mark').addEventListener('click', e=>{
 document.addEventListener('click', e=>{ if(!markmenu.contains(e.target) && e.target.id!=='btn-mark') markmenu.classList.remove('show'); });
 markmenu.querySelectorAll('button').forEach(b=> b.addEventListener('click', ()=>{
   const type=b.dataset.mark; markmenu.classList.remove('show');
-  const at = (type!=='custom' && here) ? here : map.getCenter();
-  if(type!=='custom' && !here){
-    // no fix yet: drop at map center but tell them
-    toast('No GPS fix yet — dropped at map center. Recenter and re-mark when located.');
-  }
+  // "place" = pick a spot on the map with the crosshair (for planning known spots from home).
+  if(type==='place'){ enterPlaceMode(); return; }
+  // car / river / custom "GPS" = drop where you're standing. Needs a location lock.
+  if(!here){ toast('No GPS fix yet. To pin a known spot on the map, use "Place a pin on the map…" instead.'); return; }
   let name=null;
-  if(type==='custom'){ name = prompt('Name this pin (e.g. "good agate bar", "big boulder"):','')||undefined; if(name===null) return; }
-  const p = addPin(type, at, name);
+  if(type==='custom'){ name = prompt('Name this pin (e.g. "good agate bar"):','')||undefined; if(name===null) return; }
+  const p = addPin(type, here, name);
   setTarget(p);
 }));
+
+// ---- place-on-map mode: drag the map under the crosshair, then place ----
+let placeMode=false;
+const crosshair=document.getElementById('crosshair');
+const placebar=document.getElementById('placebar');
+function enterPlaceMode(){ placeMode=true; follow=false; crosshair.classList.add('show'); placebar.classList.add('show'); accread.classList.remove('show'); }
+function exitPlaceMode(){ placeMode=false; crosshair.classList.remove('show'); placebar.classList.remove('show'); }
+document.getElementById('place-go').addEventListener('click', ()=>{
+  const c=map.getCenter();
+  const name=prompt('Name this pin (e.g. "Camp", "Where we ended Sat", "Start here next time"):','');
+  if(name===null) return; // cancelled — stay in place mode so they can retry
+  const p=addPin('custom', c, name||undefined);
+  exitPlaceMode(); setTarget(p);
+});
+document.getElementById('place-cancel').addEventListener('click', exitPlaceMode);
+
+// Bonus: long-press (mobile) / right-click (desktop) drops a pin right where you press.
+map.on('contextmenu', e=>{
+  if(placeMode) return;
+  const name = prompt('Name this pin (e.g. "gravel bar", "big boulder"):','');
+  if(name===null) return;
+  const p = addPin('custom', e.latlng, name||undefined);
+  setTarget(p);
+});
 
 // ---- target: distance + bearing to walk back ----
 let target=null, heading=null;
