@@ -1,0 +1,15 @@
+{
+  "name": "Rockhound Offline Map",
+  "short_name": "Rockhound",
+  "description": "Offline topo map, GPS, breadcrumb tracks, and pins for rockhounding with no cell signal.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#171b21",
+  "theme_color": "#171b21",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
