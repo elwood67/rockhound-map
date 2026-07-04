@@ -284,8 +284,8 @@ const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Wo
 // Public-lands overlay — BLM national Surface Management Agency (who owns/manages each parcel).
 // Colored = a public agency (Forest Service, BLM, Park, State…); blank = private land.
 const publicLands = L.tileLayer(
-  'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_without_PriorityAreas/MapServer/tile/{z}/{y}/{x}',
-  baseOpts({ opacity:0.5, maxNativeZoom:16, attribution:'Surface management © BLM' }));
+  'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_without_PriUnk/MapServer/tile/{z}/{y}/{x}',
+  baseOpts({ opacity:0.5, maxNativeZoom:14, attribution:'Surface management © BLM' }));
 
 // Trails & paths overlay — marked hiking trails/routes from OpenStreetMap (transparent lines).
 const trails = L.tileLayer('https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png',
@@ -517,7 +517,7 @@ function lat2tile(lat,z){ const r=toRad(lat); return Math.floor((1-Math.log(Math
 function tileUrl(layer,z,x,y){
   if(layer===sat) return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
   if(layer===roads) return `https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`;
-  if(layer===publicLands) return `https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_without_PriorityAreas/MapServer/tile/${z}/${y}/${x}`;
+  if(layer===publicLands) return `https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_without_PriUnk/MapServer/tile/${z}/${y}/${x}`;
   if(layer===trails) return `https://tile.waymarkedtrails.org/hiking/${z}/${x}/${y}.png`;
   return `https://a.tile.opentopomap.org/${z}/${x}/${y}.png`; // topo
 }
@@ -529,8 +529,8 @@ function planTiles(){
   const urls=[]; let zmin=99, zmax=0;
   for(const layer of layers){
     const lmax=Math.min(base+2, layer.options.maxNativeZoom||17);
-    const z0=Math.max(base-1, 8), z1=lmax;
-    for(let z=z0; z<=z1; z++){
+    const z0=Math.min(Math.max(base-1, 8), lmax);   // never let z0 exceed the layer's max
+    for(let z=z0; z<=lmax; z++){
       const x1=lon2tile(b.getWest(),z), x2=lon2tile(b.getEast(),z);
       const y1=lat2tile(b.getNorth(),z), y2=lat2tile(b.getSouth(),z);
       for(let x=Math.min(x1,x2);x<=Math.max(x1,x2);x++)
