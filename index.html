@@ -97,6 +97,13 @@
   .note{color:var(--muted);font-size:12.5px;line-height:1.5;margin:8px 2px}
   .empty{color:var(--muted);font-size:13.5px;text-align:center;padding:22px 8px}
 
+  /* land-ownership legend (shown when the public-land overlay is on) */
+  #landkey{position:absolute;left:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);z-index:855;display:none;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 11px;backdrop-filter:blur(8px)}
+  #landkey.show{display:block}
+  #landkey .lk{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--muted);padding:2px 0}
+  #landkey .lk span{width:14px;height:11px;border-radius:3px;flex:0 0 auto}
+
   /* center crosshair for placing pins on the map */
   #crosshair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:860;display:none;
     pointer-events:none;filter:drop-shadow(0 1px 2px #000a)}
@@ -160,6 +167,14 @@
 </div>
 
 <div id="accread" class="show"></div>
+
+<div id="landkey">
+  <div class="lk"><span style="background:#7fbf7f"></span>Nat'l Forest</div>
+  <div class="lk"><span style="background:#e9d97a"></span>BLM</div>
+  <div class="lk"><span style="background:#b79ad6"></span>Nat'l Park</div>
+  <div class="lk"><span style="background:#7fb0e0"></span>State</div>
+  <div class="lk"><span style="background:transparent;border:1px dashed #9aa4b0"></span>Private</div>
+</div>
 
 <div id="crosshair" aria-hidden="true">
   <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="6" fill="none" stroke="#e8a848" stroke-width="2.2"/><path d="M22 3v9M22 32v9M3 22h9M32 22h9" stroke="#e8a848" stroke-width="2.2" stroke-linecap="round"/><circle cx="22" cy="22" r="1.8" fill="#e8a848"/></svg>
@@ -266,12 +281,26 @@ const roads = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
 const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   baseOpts({ maxNativeZoom:19, attribution:'Imagery © Esri, Maxar, Earthstar Geographics' }));
 
+// Public-lands overlay — BLM national Surface Management Agency (who owns/manages each parcel).
+// Colored = a public agency (Forest Service, BLM, Park, State…); blank = private land.
+const publicLands = L.tileLayer(
+  'https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_without_PriorityAreas/MapServer/tile/{z}/{y}/{x}',
+  baseOpts({ opacity:0.5, maxNativeZoom:16, attribution:'Surface management © BLM' }));
+
+// Trails & paths overlay — marked hiking trails/routes from OpenStreetMap (transparent lines).
+const trails = L.tileLayer('https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png',
+  baseOpts({ opacity:0.9, maxNativeZoom:18, zIndex:450, attribution:'Trails © waymarkedtrails.org · OSM' }));
+
 topo.addTo(map);
 let activeLayer = topo;
 const layerCtl = L.control.layers(
-  { 'Topo': topo, 'Roads': roads, 'Satellite': sat }, null, { position:'topright' }
+  { 'Topo': topo, 'Roads': roads, 'Satellite': sat },
+  { 'Trails & paths': trails, 'Public land (Forest / BLM)': publicLands },
+  { position:'topright', collapsed:true }
 ).addTo(map);
 map.on('baselayerchange', e => { activeLayer = e.layer; });
+map.on('overlayadd', e => { if(e.layer===publicLands) landkey.classList.add('show'); });
+map.on('overlayremove', e => { if(e.layer===publicLands) landkey.classList.remove('show'); });
 
 // ---- geometry helpers ----
 const R = 6371000;
@@ -486,24 +515,29 @@ function onOrient(e){
 function lon2tile(lon,z){ return Math.floor((lon+180)/360*2**z); }
 function lat2tile(lat,z){ const r=toRad(lat); return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*2**z); }
 function tileUrl(layer,z,x,y){
-  let u = layer===sat
-    ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
-    : (layer===roads
-        ? `https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`
-        : `https://a.tile.opentopomap.org/${z}/${x}/${y}.png`);
-  return u;
+  if(layer===sat) return `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`;
+  if(layer===roads) return `https://a.tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  if(layer===publicLands) return `https://gis.blm.gov/arcgis/rest/services/lands/BLM_Natl_SMA_Cached_without_PriorityAreas/MapServer/tile/${z}/${y}/${x}`;
+  if(layer===trails) return `https://tile.waymarkedtrails.org/hiking/${z}/${x}/${y}.png`;
+  return `https://a.tile.opentopomap.org/${z}/${x}/${y}.png`; // topo
 }
 function planTiles(){
   const b=map.getBounds(), base=Math.round(map.getZoom());
-  const max = Math.min(base+2, activeLayer.options.maxNativeZoom||17);
-  const zmin=Math.max(base-1, 8), zmax=max;
-  const urls=[];
-  for(let z=zmin; z<=zmax; z++){
-    const x1=lon2tile(b.getWest(),z), x2=lon2tile(b.getEast(),z);
-    const y1=lat2tile(b.getNorth(),z), y2=lat2tile(b.getSouth(),z);
-    for(let x=Math.min(x1,x2);x<=Math.max(x1,x2);x++)
-      for(let y=Math.min(y1,y2);y<=Math.max(y1,y2);y++)
-        urls.push(tileUrl(activeLayer,z,x,y));
+  // Download the active base layer, plus any overlays (trails / public land) that are on.
+  const layers=[activeLayer];
+  [trails, publicLands].forEach(ov=>{ if(map.hasLayer(ov) && activeLayer!==ov) layers.push(ov); });
+  const urls=[]; let zmin=99, zmax=0;
+  for(const layer of layers){
+    const lmax=Math.min(base+2, layer.options.maxNativeZoom||17);
+    const z0=Math.max(base-1, 8), z1=lmax;
+    for(let z=z0; z<=z1; z++){
+      const x1=lon2tile(b.getWest(),z), x2=lon2tile(b.getEast(),z);
+      const y1=lat2tile(b.getNorth(),z), y2=lat2tile(b.getSouth(),z);
+      for(let x=Math.min(x1,x2);x<=Math.max(x1,x2);x++)
+        for(let y=Math.min(y1,y2);y<=Math.max(y1,y2);y++)
+          urls.push(tileUrl(layer,z,x,y));
+      zmin=Math.min(zmin,z); zmax=Math.max(zmax,z);
+    }
   }
   return {urls, zmin, zmax};
 }

@@ -5,7 +5,7 @@
             (b) in bulk when you tap "Download this area". Served cache-first
             when you're offline in the field.
 */
-const SHELL = 'rockhound-shell-v4';
+const SHELL = 'rockhound-shell-v6';
 const TILES = 'rockhound-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -27,7 +27,9 @@ const TILE_HOSTS = [
   'tile.opentopomap.org',
   'tile.openstreetmap.org',
   'server.arcgisonline.com',
-  'basemaps.cartocdn.com'
+  'basemaps.cartocdn.com',
+  'gis.blm.gov',
+  'tile.waymarkedtrails.org'
 ];
 
 self.addEventListener('install', (e) => {
