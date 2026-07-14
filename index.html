@@ -245,6 +245,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="piedra-route.js"></script>
 <script>
 /* ---------------------------------------------------------------------------
    Rockhound Offline Map
@@ -301,6 +302,12 @@ const layerCtl = L.control.layers(
 map.on('baselayerchange', e => { activeLayer = e.layer; });
 map.on('overlayadd', e => { if(e.layer===publicLands) landkey.classList.add('show'); });
 map.on('overlayremove', e => { if(e.layer===publicLands) landkey.classList.remove('show'); });
+
+// Saved routes — vector overlays that live in the app itself (no tiles, no network).
+// Unchecked by default; tick it in the layer panel. Ropewiki GPS track, Sept 2018.
+if (window.PiedraRoute) {
+  layerCtl.addOverlay(PiedraRoute.layer(), 'Piedra Falls route');
+}
 
 // ---- geometry helpers ----
 const R = 6371000;

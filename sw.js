@@ -5,7 +5,7 @@
             (b) in bulk when you tap "Download this area". Served cache-first
             when you're offline in the field.
 */
-const SHELL = 'rockhound-shell-v7';
+const SHELL = 'rockhound-shell-v8';
 const TILES = 'rockhound-tiles-v1';
 
 const SHELL_ASSETS = [
@@ -16,6 +16,7 @@ const SHELL_ASSETS = [
   './icon-512.png',
   './apple-touch-icon.png',
   './favicon.png',
+  './piedra-route.js',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
   'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
