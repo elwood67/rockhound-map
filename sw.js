@@ -5,7 +5,7 @@
             (b) in bulk when you tap "Download this area". Served cache-first
             when you're offline in the field.
 */
-const SHELL = 'rockhound-shell-v8';
+const SHELL = 'rockhound-shell-v9';
 const TILES = 'rockhound-tiles-v1';
 
 const SHELL_ASSETS = [

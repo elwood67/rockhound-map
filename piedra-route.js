@@ -37,6 +37,26 @@
 
   var group = null;
 
+  // Great-circle length of a coordinate ring, in metres.
+  function lengthOf(coords) {
+    var R = 6371000, t = 0, i, p1, p2, dp, dl, h;
+    for (i = 0; i < coords.length - 1; i++) {
+      p1 = coords[i][1] * Math.PI / 180;
+      p2 = coords[i + 1][1] * Math.PI / 180;
+      dp = p2 - p1;
+      dl = (coords[i + 1][0] - coords[i][0]) * Math.PI / 180;
+      h = Math.sin(dp / 2) * Math.sin(dp / 2) +
+          Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+      t += 2 * R * Math.asin(Math.sqrt(h));
+    }
+    return t;
+  }
+
+  function fmtLen(m) {
+    var mi = m / 1609.344;
+    return mi < 0.19 ? Math.round(m * 3.280839895) + ' ft' : mi.toFixed(2) + ' mi';
+  }
+
   function dot(color) {
     return L.divIcon({
       className: '',
@@ -56,10 +76,12 @@
       if (f.geometry.type === 'LineString') {
         var s = STYLE[p.track];
         if (!s) return;
+        var len = lengthOf(f.geometry.coordinates);
         L.geoJSON(f, {
           style: { color: s.color, weight: s.weight, opacity: 0.95,
                    dashArray: s.dash, lineJoin: 'round' }
-        }).bindPopup('<b>' + s.label + '</b><br>' + (p.description || '')).addTo(g);
+        }).bindPopup('<b>' + s.label + '</b><br>' + fmtLen(len) +
+                     (p.description ? '<br>' + p.description : '')).addTo(g);
 
       } else {
         var c = f.geometry.coordinates;

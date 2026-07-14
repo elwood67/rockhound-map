@@ -65,6 +65,20 @@
   .tbtn .lab{color:var(--muted);font-weight:600}
   .tbtn.hot .lab{color:#08201f}
 
+  /* Measure mode */
+  #measure{position:absolute;left:10px;right:10px;top:calc(env(safe-area-inset-top) + 52px);z-index:880;
+    background:var(--panel);border:1px solid var(--amber);border-radius:14px;padding:10px 12px;
+    backdrop-filter:blur(8px);display:none}
+  #measure.show{display:block}
+  #measure .tot{font-size:22px;font-weight:700;color:var(--amber);line-height:1.15}
+  #measure .alt{font-size:12px;color:var(--muted);margin-top:2px}
+  #measure .hint{font-size:11px;color:var(--muted);margin-top:6px}
+  #measure .row{display:flex;gap:6px;margin-top:9px}
+  #measure .row button{flex:1;appearance:none;border:1px solid var(--line);background:#0003;color:var(--ink);
+    border-radius:10px;padding:8px 4px;font-size:12px;font-weight:600}
+  #measure .row button.go{background:var(--amber);border-color:var(--amber);color:#221803}
+  .mvtx{background:var(--amber);border:2px solid #171b21;border-radius:50%;box-shadow:0 0 0 1px var(--amber)}
+
   /* Locate FAB accuracy readout */
   #accread{position:absolute;right:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);z-index:850;
     background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:12px;
@@ -197,6 +211,18 @@
   </div>
 </div>
 
+<div id="measure">
+  <div class="tot" id="m-tot">0 ft</div>
+  <div class="alt" id="m-alt">Tap the map to drop points</div>
+  <div class="hint" id="m-hint">Tap along a path — the total updates as you go.</div>
+  <div class="row">
+    <button id="m-here">+ My spot</button>
+    <button id="m-undo">Undo</button>
+    <button id="m-clear">Clear</button>
+    <button id="m-done" class="go">Done</button>
+  </div>
+</div>
+
 <div id="toolbar">
   <button class="tbtn" id="btn-locate">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
@@ -227,6 +253,7 @@
   <div class="grab"></div>
   <h3>Your spots &amp; tools</h3>
   <div id="pinlist"></div>
+  <button class="big ghost" id="act-measure">Measure a path or distance</button>
   <button class="big ghost" id="act-sethome">Set this view as my home area</button>
   <button class="big ghost" id="act-cleartrack">Clear recorded track</button>
   <div class="note" id="tileinfo">–</div>
@@ -644,6 +671,83 @@ function toast(msg){
   t.textContent=msg; t.style.opacity='1';
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.style.transition='opacity .4s'; t.style.opacity='0'; }, 2600);
 }
+
+/* ---- measure tool -------------------------------------------------------
+   Tap points along a path; running total in feet/miles (with metric under it).
+   Great-circle distance, same haversine the pin bearings use. Purely 2D —
+   it does NOT account for climb, so a steep trail always walks longer than
+   this says. The Piedra approach reads 1.57 mi flat but gains ~1,080 ft.
+------------------------------------------------------------------------- */
+let measuring=false, mpts=[], mline=null, mdots=null;
+const mPanel=document.getElementById('measure');
+
+const mvtxIcon = L.divIcon({ className:'', iconSize:[11,11], iconAnchor:[5.5,5.5],
+  html:'<div class="mvtx" style="width:11px;height:11px"></div>' });
+
+function fmtLen(m){
+  const ft = m*3.280839895, mi = m/1609.344;
+  return mi < 0.19 ? Math.round(ft)+' ft' : mi.toFixed(2)+' mi';
+}
+function fmtLenAlt(m){
+  return m<1000 ? Math.round(m)+' m' : (m/1000).toFixed(2)+' km';
+}
+function mTotal(){
+  let t=0;
+  for(let i=0;i<mpts.length-1;i++) t += haversine(mpts[i], mpts[i+1]);
+  return t;
+}
+function mRedraw(){
+  if(!mdots){ mdots = L.layerGroup().addTo(map); }
+  mdots.clearLayers();
+  mpts.forEach(p => L.marker(p, {icon:mvtxIcon, interactive:false}).addTo(mdots));
+
+  if(!mline){ mline = L.polyline([], {color:'#e8a848', weight:3, opacity:.95,
+    dashArray:'6,5', interactive:false}).addTo(map); }
+  mline.setLatLngs(mpts);
+
+  const t = mTotal();
+  document.getElementById('m-tot').textContent = fmtLen(t);
+
+  const alt = document.getElementById('m-alt');
+  if(mpts.length < 2){
+    alt.textContent = mpts.length ? '1 point — tap another' : 'Tap the map to drop points';
+  } else {
+    const a = mpts[mpts.length-2], b = mpts[mpts.length-1];
+    const seg = haversine(a,b), br = bearing(a,b);
+    alt.textContent = `${fmtLenAlt(t)} · ${mpts.length} pts · last leg ${fmtLen(seg)} ${Math.round(br)}° ${compass(br)}`;
+  }
+}
+function mAdd(latlng){ mpts.push(latlng); mRedraw(); }
+
+function measureOn(){
+  measuring = true;
+  mPanel.classList.add('show');
+  map.getContainer().style.cursor = 'crosshair';
+  mRedraw();
+  toast('Measure mode — tap along the path');
+}
+function measureOff(){
+  measuring = false;
+  mPanel.classList.remove('show');
+  map.getContainer().style.cursor = '';
+}
+function mClear(){
+  mpts = [];
+  if(mline){ map.removeLayer(mline); mline=null; }
+  if(mdots){ mdots.clearLayers(); }
+  mRedraw();
+}
+
+map.on('click', e => { if(measuring) mAdd(e.latlng); });
+
+document.getElementById('act-measure').addEventListener('click', ()=>{ closeSheets(); measureOn(); });
+document.getElementById('m-undo').addEventListener('click', ()=>{ mpts.pop(); mRedraw(); });
+document.getElementById('m-clear').addEventListener('click', mClear);
+document.getElementById('m-done').addEventListener('click', ()=>{ measureOff(); });
+document.getElementById('m-here').addEventListener('click', ()=>{
+  if(!here){ toast('No GPS fix yet'); return; }
+  mAdd(L.latLng(here.lat, here.lng));
+});
 
 // ---- boot ----
 initTrack();
