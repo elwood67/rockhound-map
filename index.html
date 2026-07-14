@@ -769,11 +769,15 @@ document.getElementById('m-here').addEventListener('click', ()=>{
       the browser, stashed in localStorage, drawn as its own overlay. No
       server, no round trip through anyone.
 ------------------------------------------------------------------------- */
+/* Route colors — tweak freely. Rule of thumb: topo basemaps are built from
+   orange contours, brown hillshade, blue water and green forest, so the
+   colors that stay legible on top are the ones a map never uses — violet,
+   magenta. Amber vanishes into the contours; red fights the hillshade. */
 const ROUTE_STYLE = {
-  ropewiki: { color:'#e8a848', weight:3,   dash:null,    label:'Canyon routes (Ropewiki)' },
-  osm:      { color:'#7f8b99', weight:2,   dash:null,    label:'OSM paths' },
-  informal: { color:'#c58bd6', weight:2,   dash:'5,4',   label:'Unnamed / social trails' },
-  imported: { color:'#6cc46c', weight:3.5, dash:null,    label:'My imported tracks' }
+  ropewiki: { color:'#a862d9', weight:3.5, dash:null,  label:'Canyon routes (Ropewiki)' },
+  informal: { color:'#e05aa0', weight:2.5, dash:'5,4', label:'Unnamed / social trails' },
+  osm:      { color:'#7f8b99', weight:2,   dash:null,  label:'OSM paths' },
+  imported: { color:'#6cc46c', weight:3.5, dash:null,  label:'My imported tracks' }
 };
 const routeLayers = {};
 
