@@ -83,6 +83,12 @@
   #measure .row button.go{background:var(--amber);border-color:var(--amber);color:#221803}
   .mvtx{background:var(--amber);border:2px solid #171b21;border-radius:50%;box-shadow:0 0 0 1px var(--amber)}
 
+  /* elevation profile */
+  #elevbox{margin:4px 0 10px}
+  .estats{display:flex;flex-wrap:wrap;gap:12px;font-size:13px;color:var(--muted);margin-bottom:8px}
+  .estats b{color:var(--ink);font-size:16px}
+  .ehint{font-size:11px;color:var(--muted);line-height:1.5;margin-top:6px}
+
   /* Locate FAB accuracy readout */
   #accread{position:absolute;right:12px;bottom:calc(env(safe-area-inset-bottom) + 92px);z-index:850;
     background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 11px;font-size:12px;
@@ -258,6 +264,7 @@
   <h3>Your spots &amp; tools</h3>
   <div id="pinlist"></div>
   <button class="big ghost" id="act-measure">Measure a path or distance</button>
+  <button class="big ghost" id="act-elev">Elevation profile of my track</button>
   <button class="big ghost" id="act-import">Import a GPX / KML track</button>
   <input type="file" id="file-import" accept=".gpx,.kml,.geojson,.json" multiple hidden>
   <div class="note" id="routeinfo">–</div>
@@ -277,6 +284,13 @@
   <div id="prog"><div class="bar"><i id="progbar"></i></div><div class="note" id="progtxt">Starting…</div></div>
   <button class="big teal" id="dl-go">Download now</button>
   <button class="big ghost" id="dl-cancel">Cancel</button>
+</div>
+
+<div class="sheet" id="sheet-elev">
+  <div class="grab"></div>
+  <h3>Elevation profile</h3>
+  <div id="elevbox"><div class="ehint">–</div></div>
+  <button class="big ghost" id="elev-close">Close</button>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -366,7 +380,7 @@ function fmtDist(m){
 }
 
 // ---- GPS ----
-let watchId=null, here=null, hereMarker=null, accCircle=null, follow=true;
+let watchId=null, here=null, hereEle=null, hereMarker=null, accCircle=null, follow=true;
 const gdot=document.getElementById('gdot'), gtxt=document.getElementById('gtxt');
 const accread=document.getElementById('accread');
 
@@ -383,10 +397,19 @@ function startGPS(){
 function onPos(p){
   const prev = here;
   here = { lat:p.coords.latitude, lng:p.coords.longitude };
+  // GPS altitude in metres, and its own (separate, usually worse) error band.
+  hereEle = (p.coords.altitude!=null && isFinite(p.coords.altitude)) ? p.coords.altitude : null;
+  const eleAcc = p.coords.altitudeAccuracy;
   const acc = p.coords.accuracy || 0;
   gdot.className = 'dot ' + (acc<=15?'on':'weak');
   gtxt.textContent = 'GPS ±'+Math.round(acc)+'m';
-  accread.textContent = '±'+Math.round(acc)+' m accuracy';
+
+  let accLine = '±'+Math.round(acc)+' m accuracy';
+  if(hereEle!=null){
+    const ft = Math.round(hereEle*3.280839895);
+    accLine += '  ·  '+ft.toLocaleString()+' ft' + (eleAcc?` ±${Math.round(eleAcc*3.28)}`:'');
+  }
+  accread.textContent = accLine;
   accread.classList.add('show');
 
   if(!hereMarker){ hereMarker = L.marker(here,{icon:meIcon,zIndexOffset:1000}).addTo(map); }
@@ -419,7 +442,9 @@ function initTrack(){
 }
 function pushTrackPoint(pt, prev){
   if(prev && haversine(prev,pt) < 3) return; // skip GPS jitter
-  trackPts.push({lat:pt.lat,lng:pt.lng,t:Date.now()});
+  // keep altitude when we have it — this is what makes the recorded hike carry
+  // a real elevation profile with no DEM needed.
+  trackPts.push({lat:pt.lat,lng:pt.lng,t:Date.now(),ele:hereEle});
   if(trackPts.length>1) trackDist += haversine(trackPts[trackPts.length-2], pt);
   if(!trackLine){ trackLine=L.polyline([],{color:'#3ea6a6',weight:4,opacity:.9}).addTo(map); }
   trackLine.addLatLng([pt.lat,pt.lng]);
@@ -946,6 +971,117 @@ document.getElementById('act-clearimports').addEventListener('click', ()=>{
   refreshRouteInfo();
   toast('Imported tracks removed');
 });
+
+/* ---- elevation ----------------------------------------------------------
+   Two things people mean by "elevation gain":
+
+     net    = end minus start. Useless for a hike — an out-and-back nets zero
+              no matter how much you climbed.
+     gain   = the honest one. Walk the points in order; every time the next is
+              higher than the last, add the rise. Sum them all. Cross the same
+              hump three times and it counts three times. This is what a GPS
+              watch means by "1,080 ft gain".
+
+   Raw GPS altitude is jittery, so summing it straight over-counts — noise
+   reads as a stack of tiny climbs. We smooth first (moving average) and
+   ignore wiggles below a threshold, so only real climbing survives.
+------------------------------------------------------------------------- */
+const M2FT = 3.280839895;
+
+function smoothEle(vals, win){
+  // centered moving average; nulls pass through as null
+  const out = vals.slice();
+  for(let i=0;i<vals.length;i++){
+    if(vals[i]==null) continue;
+    let s=0,n=0;
+    for(let j=Math.max(0,i-win); j<=Math.min(vals.length-1,i+win); j++){
+      if(vals[j]!=null){ s+=vals[j]; n++; }
+    }
+    out[i] = n? s/n : vals[i];
+  }
+  return out;
+}
+
+function elevStats(pts){
+  // pts: [{lat,lng,ele}] in metres. Returns feet.
+  const raw = pts.map(p=>p.ele);
+  const have = raw.filter(v=>v!=null).length;
+  if(have < 2) return null;
+
+  // Smooth to kill GPS jitter — but only when the track is dense enough that
+  // a small window won't erase real terrain. Sparse tracks (few points) get
+  // no smoothing, so genuine humps aren't averaged flat.
+  const win = have >= 60 ? 2 : (have >= 25 ? 1 : 0);
+  const e = win ? smoothEle(raw, win) : raw;
+
+  const NOISE = win ? 2 : 1;      // metres — ignore climbs below this
+  let gain=0, loss=0, min=Infinity, max=-Infinity, last=null;
+  for(const v of e){
+    if(v==null) continue;
+    if(v<min) min=v;
+    if(v>max) max=v;
+    if(last!=null){
+      const d = v-last;
+      if(d >  NOISE){ gain+=d; last=v; }
+      else if(d < -NOISE){ loss+=-d; last=v; }
+    } else last=v;
+  }
+  return {
+    gain:  Math.round(gain*M2FT),
+    loss:  Math.round(loss*M2FT),
+    min:   Math.round(min*M2FT),
+    max:   Math.round(max*M2FT),
+    net:   Math.round((e.findLast(v=>v!=null)-e.find(v=>v!=null))*M2FT)
+  };
+}
+
+// Build an SVG profile: elevation (y) against cumulative distance (x).
+function elevProfileSVG(pts, w, h){
+  const rows=[]; let dist=0;
+  for(let i=0;i<pts.length;i++){
+    if(i>0) dist += haversine(pts[i-1],pts[i]);
+    if(pts[i].ele!=null) rows.push({d:dist, e:pts[i].ele});
+  }
+  if(rows.length<2) return null;
+
+  const es=smoothEle(rows.map(r=>r.e),2);
+  rows.forEach((r,i)=>r.e=es[i]);
+  const pad=6, dMax=rows[rows.length-1].d || 1;
+  const eMin=Math.min(...rows.map(r=>r.e)), eMax=Math.max(...rows.map(r=>r.e));
+  const eSpan=(eMax-eMin)||1;
+  const X=d=> pad + (d/dMax)*(w-2*pad);
+  const Y=e=> (h-pad) - ((e-eMin)/eSpan)*(h-2*pad);
+
+  let line='M'+rows.map(r=>`${X(r.d).toFixed(1)},${Y(r.e).toFixed(1)}`).join(' L');
+  const area = line + ` L${X(dMax).toFixed(1)},${h-pad} L${X(0).toFixed(1)},${h-pad} Z`;
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+    <path d="${area}" fill="#3ea6a633"/>
+    <path d="${line}" fill="none" stroke="#3ea6a6" stroke-width="2" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function showElevation(){
+  const box=document.getElementById('elevbox');
+  const st=elevStats(trackPts);
+  if(!st){
+    box.innerHTML = '<div class="ehint">No elevation logged yet. Record a track with GPS on — '
+      + 'each point stores altitude as you walk, then the profile shows up here.</div>';
+    return;
+  }
+  const miles=(trackDist/1609.344).toFixed(2);
+  const svg=elevProfileSVG(trackPts, 300, 66) || '';
+  box.innerHTML =
+    `<div class="estats">
+       <span><b>↑ ${st.gain.toLocaleString()}</b> ft gain</span>
+       <span><b>↓ ${st.loss.toLocaleString()}</b> ft</span>
+       <span><b>${st.min.toLocaleString()}–${st.max.toLocaleString()}</b> ft</span>
+       <span>${miles} mi</span>
+     </div>${svg}
+     <div class="ehint">Gain counts every climb, including repeats — not just top-minus-bottom. GPS altitude is rough (±10–30 ft), so treat these as close, not exact.</div>`;
+}
+
+document.getElementById('act-elev').addEventListener('click', ()=>{ showElevation(); openSheet('sheet-elev'); });
+document.getElementById('elev-close').addEventListener('click', closeSheets);
 
 loadImports();
 loadBundledRoutes();
